@@ -398,3 +398,15 @@ class ArduPilotInterface:
         for thread in self.threads:
             if thread and thread.is_alive():
                 thread.join()
+
+        
+if __name__ == "__main__":
+    pixhawk = ArduPilotInterface('/dev/ttyACM0')
+    while True:
+        print(f"ardupilot is {'connected' if pixhawk.connected else 'disconnected'}")
+        with pixhawk.rc_override() as rc_override:
+            roll = 1400
+            pitch = 1600
+            while True:
+                rc_override(roll=roll, pitch=pitch)
+        time.sleep(1)
