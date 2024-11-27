@@ -1,0 +1,33 @@
+{
+    "ardupilot_interface": {
+        "system_id": 1,
+        "component_id": 1,
+        "baud_rate": 57600,
+        "com_port": "/dev/ttyAMA0",
+        "reconnect_on_the_fly": true
+    },
+    "camera_config": {
+        "resolution": {
+            "width": 640,
+            "height": 480
+        },
+        "flip_method": "0",
+        "mirror": false
+    },
+    "tracker_config": {
+        "threshold": 25,
+        "max_iterations": 100,
+        "min_track_length": 5
+    },
+    "control_params": {
+        "kp": 0.05,
+        "ki": 0.001,
+        "kd": 0.005,
+        "integral_limit": 10.0
+    },
+    "logging": {
+        "enable": true,
+        "log_file": "tracker.log"
+    },
+    "debug_mode": false,
+}
