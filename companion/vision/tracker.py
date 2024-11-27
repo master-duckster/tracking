@@ -5,10 +5,8 @@ from time import sleep
 import threading
 
 class Tracker:
-    def __init__(self, video_path, output_path="output_with_tracking.mp4", center_output="bbox_centers.txt", frame_rate=30):
-        self.video_path = video_path
-        self.output_path = output_path
-        self.center_output = center_output  # File to store bounding box centers
+    def __init__(self, video_source, frame_rate=30):
+        self.video_source = video_source 
         self.frame_rate = frame_rate
         self.frame_time = 1.0 / frame_rate
         self.bbox = None
@@ -19,7 +17,7 @@ class Tracker:
 
         self.tracker = cv2.TrackerCSRT_create()
         # Initialize video capture
-        self.video = cv2.VideoCapture(self.video_path)
+        self.video = cv2.VideoCapture(self.video_source)
         if not self.video.isOpened():
             print("Could not open video")
             sys.exit()
@@ -35,10 +33,10 @@ class Tracker:
 
         # Initialize the VideoWriter to write output video
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # 'mp4v' is a common codec for mp4
-        self.out = cv2.VideoWriter(self.output_path, fourcc, self.frame_rate, (self.frame_width, self.frame_height))
+        # self.out = cv2.VideoWriter(self.output_path, fourcc, self.frame_rate, (self.frame_width, self.frame_height))
 
         # Open the file for writing the centers of the bounding box
-        self.center_file = open(self.center_output, 'w')
+        # self.center_file = open(self.center_output, 'w')
 
         # Create OpenCV window
         cv2.imshow("Tracking", self.frame)
