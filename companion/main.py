@@ -1,5 +1,5 @@
 import time
-from ardupilot_interface import ArduPilotInterface
+from companion.control.ardupilot_interface import ArduPilotInterface
 from companion.vision.tracker import Tracker
 
 video_source = 
