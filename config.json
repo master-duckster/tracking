@@ -20,14 +20,17 @@
         "min_track_length": 5
     },
     "control_params": {
-        "kp": 0.05,
-        "ki": 0.001,
-        "kd": 0.005,
-        "integral_limit": 10.0
+        "Kp": 1.0,
+        "Ki": 0.0,
+        "Kd": 0.0,
+        "sample_time": 0.01,
+        "proportional_on_measurement": true,
+        "differential_on_measurement": true,
+        "starting_output": 0.0
     },
     "logging": {
         "enable": true,
         "log_file": "tracker.log"
     },
-    "debug_mode": false,
+    "debug_mode": false
 }
