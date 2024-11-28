@@ -80,7 +80,8 @@ class RcOverride:
                 self._validate_rc_input(pitch) if pitch is not None else 0
             )
             self.rc_override_values[2] = (
-                self._validate_rc_input(throttle) if throttle is not None else 0
+                self._validate_rc_input(
+                    throttle) if throttle is not None else 0
             )
             self.rc_override_values[3] = (
                 self._validate_rc_input(yaw) if yaw is not None else 0
@@ -150,6 +151,12 @@ class ArduPilotInterface:
         self._attitude: Attitude = None
         self._vfr_hud: VfrHud = None
 
+        self._parameters_values = {}
+        self._pending_parameters = []
+        self._parameter_value_callbacks = {}
+        self._continues_retrieval_parameters = []
+        self.parameters_retrieval_frequency = 0.1
+        self._time_to_check_parameters = 0
         self._message_frequencies = {
             mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE: 200,
             mavutil.mavlink.MAVLINK_MSG_ID_VFR_HUD: 100,
@@ -161,11 +168,12 @@ class ArduPilotInterface:
             "HEARTBEAT",
             "RC_CHANNELS_SCALED",
             "VFR_HUD",
+            "PARAM_VALUE"
         ]
 
-        self.time_to_trigger_connection_failsafe = 0 
+        self.time_to_trigger_connection_failsafe = 0
         self.reconnect_on_the_fly = reconnect_on_the_fly
-        self.master = None
+        self._master = None
         self.connected = False
         self.connect()
         self.start()
@@ -180,22 +188,23 @@ class ArduPilotInterface:
                 self.logger.info(
                     f"connecting to pixhawk: {self.connection_string}, baud_rate={self.baudrate}, system_id={self.system_id}"
                 )
-                self.master = mavutil.mavlink_connection(
+                self._master = mavutil.mavlink_connection(
                     self.connection_string,
                     baud=self.baudrate,
                     source_system=self.system_id,
                 )
                 self.logger.info("Waiting For HeartBeat")
-                self.master.wait_heartbeat()
+                self._master.wait_heartbeat()
                 self.logger.info("Checking version...")
-                self.master.mav.autopilot_version_request_send(
-                    self.master.target_system, self.master.target_component
+                self._master.mav.autopilot_version_request_send(
+                    self._master.target_system, self._master.target_component
                 )
                 self.logger.info("Done")
 
                 self.logger.info("Requesting extra data from pixhawk...")
                 for msg, frequency in self._message_frequencies.items():
-                    self.logger.debug(f"Requesting msg_id={msg}, frequency={frequency}")
+                    self.logger.debug(
+                        f"Requesting msg_id={msg}, frequency={frequency}")
                     self._send_command_long(
                         mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
                         [msg, int(1000000 / frequency)],
@@ -232,7 +241,7 @@ class ArduPilotInterface:
                 if msg_type == "AUTOPILOT_VERSION":
                     self.version = msg.flight_custom_version
                 elif msg_type == "HEARTBEAT":
-                    self.time_to_trigger_connection_failsafe = time.time() + self.NO_HEARTBEAT_TIMEOUT 
+                    self.time_to_trigger_connection_failsafe = time.time() + self.NO_HEARTBEAT_TIMEOUT
                 elif msg_type == "ATTITUDE":
                     self._attitude = Attitude(
                         degrees(msg.roll),
@@ -265,11 +274,37 @@ class ArduPilotInterface:
                             float(msg.chan8_scaled / 10000.0),
                         ]
                         self._rc_rssi = float(msg.rssi / 254.0)
-            except Exception as e:
-                print(e)
+                elif msg_type == 'PARAM_VALUE':
+                    if msg.param_id in self._parameter_value_callbacks.keys():
+                        try:
+                            self._parameter_value_callbacks[msg.param_id](
+                                msg.param_value)
+                        except Exception as e:
+                            self.logger.debug(
+                                f"Error in parameter callback: {e}")
 
-    def get_messege(self):
-        return self.master.recv_match(type=self._messages_to_accept, blocking=True)
+                    logger.debug(
+                        f"Storing parameter: {msg.param_id}: {msg.param_value}")
+                    self._parameters_values[msg.param_id] = msg.param_value
+                else:
+                    pass
+
+                if time.monotonic() > self._time_to_check_parameters:
+                    for parameter in self._continues_retrieval_parameters:
+                        self._master.mav.param_request_read_send(
+                            self._master.target_system,
+                            self._master.target_component,
+                            parameter.encode('utf-8'),
+                            -1
+                        )
+
+            except Exception as e:
+                logger.error(f"Error in main mavlink listener: {e}")
+
+    def get_messege(self, messages=None):
+        if messages == None:
+            messages = self._messages_to_accept
+        return self._master.recv_match(type=messages, blocking=True)
 
     def set_mode(self, mode):
         """
@@ -278,7 +313,7 @@ class ArduPilotInterface:
         :param mode: Mode string (e.g., 'STABILIZE', 'LOITER', 'AUTO')
         """
         with self.pixhawk_lock:
-            mode_id = self.master.mode_mapping().get(mode)
+            mode_id = self._master.mode_mapping().get(mode)
             if mode_id is None:
                 print(f"Unknown mode: {mode}")
                 return
@@ -320,59 +355,56 @@ class ArduPilotInterface:
         Thread function to send RC_CHANNELS_OVERRIDE messages at regular intervals.
         """
         rc_override18 = [roll, pitch, throttle, yaw] + [0] * 14
-        with self.pixhawk_lock:  # TODO make sure lock is nedded
-            print("sent rc override")
-            self.master.mav.rc_channels_override_send(
-                self.master.target_system, self.master.target_component, *rc_override18
-            )
+        print("sent rc override")
+        self._master.mav.rc_channels_override_send(
+            self._master.target_system, self._master.target_component, *rc_override18
+        )
 
-    def set_parameter(self, param_name, param_value, blocking=False,timeout=10):
+    def set_parameter_callback(self, param_name, callback):
+        self._continues_retrieval_parameters.append(param_name)
+        self._parameter_value_callbacks[param_name] = callback
+
+    def set_parameter(self, param_name, param_value, timeout=10, blocking=False, parameter_changed_cb=None):
         """
         Set a parameter on the vehicle and wait for acknowledgment.
 
         :param param_name: Name of the parameter
         :param param_value: Value to set
-        :param blocking: wait for param change ack
-        :param timeout: Timeout in seconds
+        :param parametrs_changed_cb: callback will trigger when parameter change. should have one argument as parameter value
         :return: True if parameter was set successfully, False otherwise
         """
-        if param_type is None:
-            # Infer param_type from param_value
-            if isinstance(param_value, int):
-                param_type = mavutil.mavlink.MAV_PARAM_TYPE_INT32
-            elif isinstance(param_value, float):
-                param_type = mavutil.mavlink.MAV_PARAM_TYPE_REAL32
-            else:
-                raise ValueError("Unsupported parameter value type")
+
+        param_types = {
+            int: mavutil.mavlink.MAV_PARAM_TYPE_INT32,
+            float: mavutil.mavlink.MAV_PARAM_TYPE_REAL32,
+            bool: mavutil.mavlink.MAV_PARAM_TYPE_UINT8
+        }
+
+        param_type = None
+        for param_class, mav_param_type in param_types.items():
+            if isinstance(param_value, param_class):
+                param_type = mav_param_type
+
+        if param_type == None:
+            raise ("parameter type not available")
 
         # Send PARAM_SET message
-        self.master.mav.param_set_send(
-            self.master.target_system,
-            self.master.target_component,
+        self._master.mav.param_set_send(
+            self._master.target_system,
+            self._master.target_component,
             param_name.encode("utf-8"),
-            float(param_value),
+            param_value,
             param_type,
         )
 
-        # Wait for PARAM_VALUE message with matching param_name
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            with self.pixhawk_lock:
-                msg = self.master.recv_match(
-                    type="PARAM_VALUE", blocking=True, timeout=1
-                )
-            if msg:
-                if msg.param_id.decode("utf-8").strip("\x00") == param_name:
-                    # Check if the parameter value matches
-                    if abs(msg.param_value - float(param_value)) < 1e-6:
-                        print(f"Parameter '{param_name}' set to {param_value}")
-                        return True
-                    else:
-                        print(
-                            f"Parameter '{param_name}' value mismatch: expected {param_value}, got {msg.param_value}"
-                        )
-                        return False
-        print(f"Timeout while setting parameter '{param_name}'")
+        if parameter_changed_cb is not None:
+            self._parameter_value_callbacks[param_name] = parameter_changed_cb
+
+        timeout_expiration_time = time.monotonic() + timeout
+        while blocking and time.monotonic() < timeout_expiration_time:
+            if self._parameters_values.get(param_name, None) == param_value:
+                return True
+
         return False
 
     def _send_command_long(self, command, params):
@@ -384,15 +416,15 @@ class ArduPilotInterface:
         :param target_system: Target system ID (default is the connected vehicle)
         :param target_component: Target component ID (default is the connected component)
         """
-        target_system = self.master.target_system
-        target_component = self.master.target_component
+        target_system = self._master.target_system
+        target_component = self._master.target_component
 
         # Ensure params list has exactly 7 elements
         params += [0.0] * (7 - len(params))
         params = [0] + params
 
         # Send the command_long message
-        self.master.mav.command_long_send(
+        self._master.mav.command_long_send(
             target_system, target_component, command, *params  # Confirmation
         )
 
@@ -409,21 +441,25 @@ class ArduPilotInterface:
 if __name__ == "__main__":
     logger = logging.getLogger("/dev/null")
     pixhawk = ArduPilotInterface("/dev/ttyACM0", logger)
+    param_ret = pixhawk.set_parameter('RTL_ALT', 10, blocking=True)
+    pixhawk.set_parameter_callback('LAND_SPEED', print)
+    pixhawk.set_parameter_callback('LOG_BITMASK', print)
+    print(param_ret)
     while pixhawk.connected:
         # os.system("clear")
-        output = ""
+        # output = ""
 
-        if pixhawk.vfr_hud is not None:
-            output += repr(pixhawk.vfr_hud)
-            output += "\n\n"
+        # if pixhawk.vfr_hud is not None:
+        #     output += repr(pixhawk.vfr_hud)
+        #     output += "\n\n"
 
-        if pixhawk.attitude is not None:
-            output += repr(pixhawk.attitude)
-            output += "\n\n"
+        # if pixhawk.attitude is not None:
+        #     output += repr(pixhawk.attitude)
+        #     output += "\n\n"
 
-        if pixhawk.rc_channels is not None:
-            output += f"rc_channels({', '.join(pixhawk.rc_channels)})"
-            output += "\n\n"
+        # if pixhawk.rc_channels is not None:
+        #     output += f"rc_channels({', '.join(pixhawk.rc_channels)})"
+        #     output += "\n\n"
 
-        print(output)
+        # print(output)
         time.sleep(0.1)
