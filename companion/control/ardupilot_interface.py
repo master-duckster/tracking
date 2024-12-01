@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from typing import List
 import logging
 
+import serial
+
 
 class RcOverride:
     def __init__(self, rc_override_cb, frequency=200) -> None:
@@ -124,7 +126,7 @@ class ArduPilotInterface:
     def __init__(
         self,
         connection_string,
-        logger: logging.Logger,
+        logger: logging.Logger = logging.getLogger(),
         baudrate=115200,
         system_id=255,
         reconnect_on_the_fly=True,
@@ -214,10 +216,14 @@ class ArduPilotInterface:
                 self.connected = True
                 self.time_to_trigger_connection_failsafe = time.time() + self.NO_HEARTBEAT_TIMEOUT
                 break
+            except serial.SerialException as e:
+                logging.error(
+                    f"Error connecting to pixhawk, \"{self.connection_string}\" Could not be found")
+                attempt += 1
+                time.sleep(2)
             except Exception as e:
                 logging.error(f"Mavlink Connection Error: {repr(e)}")
                 attempt += 1
-                print("could not connect on the fly. retrying...")
                 time.sleep(0.5)
 
     def start(self):
@@ -441,25 +447,22 @@ class ArduPilotInterface:
 if __name__ == "__main__":
     logger = logging.getLogger("/dev/null")
     pixhawk = ArduPilotInterface("/dev/ttyACM0", logger)
-    param_ret = pixhawk.set_parameter('RTL_ALT', 10, blocking=True)
-    pixhawk.set_parameter_callback('LAND_SPEED', print)
-    pixhawk.set_parameter_callback('LOG_BITMASK', print)
-    print(param_ret)
+    # param_ret = pixhawk.set_parameter('RTL_ALT', 10, blocking=True)
     while pixhawk.connected:
-        # os.system("clear")
-        # output = ""
+        os.system("clear")
+        output = ""
 
-        # if pixhawk.vfr_hud is not None:
-        #     output += repr(pixhawk.vfr_hud)
-        #     output += "\n\n"
+        if pixhawk.vfr_hud is not None:
+            output += repr(pixhawk.vfr_hud)
+            output += "\n\n"
 
-        # if pixhawk.attitude is not None:
-        #     output += repr(pixhawk.attitude)
-        #     output += "\n\n"
+        if pixhawk.attitude is not None:
+            output += repr(pixhawk.attitude)
+            output += "\n\n"
 
-        # if pixhawk.rc_channels is not None:
-        #     output += f"rc_channels({', '.join(pixhawk.rc_channels)})"
-        #     output += "\n\n"
+        if pixhawk.rc_channels is not None:
+            output += f"rc_channels({', '.join(pixhawk.rc_channels)})"
+            output += "\n\n"
 
-        # print(output)
+        print(output)
         time.sleep(0.1)

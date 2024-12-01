@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Configuration</h2>
+
+<form id="config-form">
+    {% for key, value in config_options.items() | reverse %}
+    <div class="form-group">
+        <label for="{{ value }}">{{ key }}</label>
+        <input type="text" class="form-control" id="{{ value }}" name="{{ value }}" value="{{ config_options[value] }}">
+    </div>
+    {% endfor %}
+    <button type="submit" class="btn btn-success">Save Configuration</button>
+</form>
+
+<hr>
+
+<h2>ArduPilot Parameters</h2>
+
+<form id="parameters-form">
+    <div class="form-group">
+        <label for="parameter-select">Select Parameter</label>
+        <select class="form-control" id="parameter-select" name="parameter">
+            {% for label, value in parameters.items() %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="parameter-value">Value</label>
+        <input type="text" class="form-control" id="parameter-value" name="value">
+    </div>
+    <button type="submit" class="btn btn-primary">Submit Parameter</button>
+</form>
+{% endblock %}

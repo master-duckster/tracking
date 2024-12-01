@@ -6,11 +6,13 @@
         "com_port": "/dev/ttyAMA0",
         "reconnect_on_the_fly": true
     },
-    "camera_config": {
+    "vision": {
+        "video_source": "output.mp4",
         "resolution": {
             "width": 640,
             "height": 480
         },
+        "frame_rate": 30,
         "flip_method": "0",
         "mirror": false
     },
