@@ -28,6 +28,7 @@ class Tracker:
     def __init__(self, video_source, logger=None, frame_rate=30, show_video_window=False, tracker_config={}, video_log_path='tracker_logs/tracker_capture'):
         self.logger = logger or logging.getLogger(__name__)
         self.stop_event = threading.Event()
+        self._frame_lock = threading.Lock()
 
         self.open_video_window = show_video_window
         self.video_source = video_source
@@ -59,6 +60,12 @@ class Tracker:
         #     target=self.process_frames, daemon=True)
         # self.tracker_thread.start()
 
+    def _draw_crosser(self, frame, x, y, size=200):
+        cv2.line(frame, (x, y), (x + size, y), (0, 0, 255), 2)
+        cv2.line(frame, (x, y), (x - size, y), (0, 0, 255), 2)
+        cv2.line(frame, (x, y), (x, y + size), (0, 0, 255), 2)
+        cv2.line(frame, (x, y), (x, y - size), (0, 0, 255), 2)
+
     def _initialize_video(self, video_source):
         """Initialize video capture."""
         self.video = cv2.VideoCapture(video_source)
@@ -66,12 +73,12 @@ class Tracker:
             self.logger.error("Could not open video source")
             sys.exit()
 
-        self.ok, self.frame = self.video.read()
+        self.ok, self._frame = self.video.read()
         if not self.ok:
             self.logger.error('Cannot read video file')
             sys.exit()
 
-        self.frame_height, self.frame_width = self.frame.shape[:2]
+        self.frame_height, self.frame_width = self._frame.shape[:2]
 
     def _create_output_file(self, basename):
         """Create or update the output video file name."""
@@ -150,46 +157,50 @@ class Tracker:
 
     def _process_frame(self):
         """Process a single frame."""
-        self.ok, self.frame = self.video.read()
+        self.ok, self._frame = self.video.read()
         if not self.ok:
             self.logger.warning("No frame read from video source")
             return
 
         self._update_tracker()
 
+        self._draw_crosser(self._frame, self.frame_width //
+                           2, self.frame_height//2)
         # Draw the bounding box on the frame.
         if self.bbox:
             p1 = (int(self.bbox[0]), int(self.bbox[1]))
             p2 = (int(self.bbox[0] + self.bbox[2]),
                   int(self.bbox[1] + self.bbox[3]))
-            cv2.rectangle(self.frame, p1, p2, (0, 255, 0), 2)
+            cv2.rectangle(self._frame, p1, p2, (0, 255, 0), 2)
 
         # Write the frame to the output video file.
-        self.out.write(self.frame)
+        self.out.write(self._frame)
         if self.open_video_window:
-            cv2.imshow("Tracking", self.frame)
+            cv2.imshow("Tracking", self._frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 self.stop_event.set()
+
+        self.frame = self._frame
 
     def _update_tracker(self):
         """Update the tracker with the current frame and bounding box."""
         if self.bbox is not None and not self.tracker_initialized:
             self.tracker_initialized = True
-            self.tracker.init(self.frame, self.bbox)
+            self.tracker.init(self._frame, self.bbox)
             self.logger.info(
                 "Tracker initialized with bounding box: %s", self.bbox)
 
         if self.tracker_initialized:
-            ok, self.bbox = self.tracker.update(self.frame)
+            ok, self.bbox = self.tracker.update(self._frame)
 
             if ok:
                 p1 = (int(self.bbox[0]), int(self.bbox[1]))
                 p2 = (int(self.bbox[0] + self.bbox[2]),
                       int(self.bbox[1] + self.bbox[3]))
-                cv2.rectangle(self.frame, p1, p2, (255, 0, 0), 2, 1)
+                cv2.rectangle(self._frame, p1, p2, (255, 0, 0), 2, 1)
             else:
-                cv2.putText(self.frame, "Tracking failure detected", (100, 80),
+                cv2.putText(self._frame, "Tracking failure detected", (100, 80),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
                 self.logger.warning("Tracking failure detected")
 
