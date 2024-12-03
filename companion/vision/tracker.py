@@ -49,22 +49,19 @@ class Tracker:
         self.tracker = cv2.TrackerCSRT_create()
         self._initialize_video(video_source)
         self.output_file = self._create_output_file(video_log_path)
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         self.out = cv2.VideoWriter(str(
             self.output_file), fourcc, self.frame_rate, (self.frame_width, self.frame_height))
 
         if self.open_video_window:
             cv2.setMouseCallback("Tracking", self.click_and_draw)
 
-        # self.tracker_thread = threading.Thread(
-        #     target=self.process_frames, daemon=True)
-        # self.tracker_thread.start()
 
     def _draw_crosser(self, frame, x, y, size=200):
-        cv2.line(frame, (x, y), (x + size, y), (0, 0, 255), 2)
-        cv2.line(frame, (x, y), (x - size, y), (0, 0, 255), 2)
-        cv2.line(frame, (x, y), (x, y + size), (0, 0, 255), 2)
-        cv2.line(frame, (x, y), (x, y - size), (0, 0, 255), 2)
+        cv2.line(frame, (x, y), (x + size, y), (0, 0, 255), 3)
+        cv2.line(frame, (x, y), (x - size, y), (0, 0, 255), 3)
+        cv2.line(frame, (x, y), (x, y + size), (0, 0, 255), 3)
+        cv2.line(frame, (x, y), (x, y - size), (0, 0, 255), 3)
 
     def _initialize_video(self, video_source):
         """Initialize video capture."""
@@ -143,29 +140,19 @@ class Tracker:
             self.bbox = (self.x_ - size // 2, self.y_ - size // 2, size, size)
             self.drawing = False
 
-    def process_frames(self):
-        """Main loop to process video frames and track the object."""
-        while not self.stop_event.is_set():
-            # self.frame_count += 1
-            # time.sleep(self.frame_time)
-
-            # if time.time() - self.timer >= 1:
-            #     self.fps = self.frame_count
-            #     self.frame_count = 0
-            #     self.timer = time.time()
-            self._process_frame()
 
     def _process_frame(self):
         """Process a single frame."""
         self.ok, self._frame = self.video.read()
         if not self.ok:
+            self.out.release()
             self.logger.warning("No frame read from video source")
             return
 
         self._update_tracker()
 
         self._draw_crosser(self._frame, self.frame_width //
-                           2, self.frame_height//2)
+                           2, self.frame_height//2, int(self.frame_width*0.05))
         # Draw the bounding box on the frame.
         if self.bbox:
             p1 = (int(self.bbox[0]), int(self.bbox[1]))
@@ -208,11 +195,12 @@ class Tracker:
                 self.center_x = int(self.bbox[0] + self.bbox[2] / 2)
                 self.center_y = int(self.bbox[1] + self.bbox[3] / 2)
 
-    def __del__(self):
+    def kill(self):
         self.stop_event.set()
         if self.video.isOpened():
             self.video.release()
         if self.out.isOpened():
+            print("closed video peacefully")
             self.out.release()
         cv2.destroyAllWindows()
 
@@ -220,5 +208,5 @@ class Tracker:
 if __name__ == '__main__':
     # Initialize the tracker with the path to the video file and the output files
     tracker = Tracker(
-        "output.mp4", "output_with_tracking.mp4", "bbox_centers.txt")
+        "output.mp4", "output_with_tracking.avi", "bbox_centers.txt")
     tracker.process_frames()
