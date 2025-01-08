@@ -1,8 +1,9 @@
 import json
+import threading
 import time
-from vision.optical_flow import OpticalFlow
+from vision.drone_vision import DroneVision
+from vision.utils.optical_flow import OpticalFlow
 from control.ardupilot_interface import ArduPilotInterface
-from vision.tracker import Tracker
 from control.control import TrackerPid
 from app.server import WebGui
 import logging
@@ -32,13 +33,21 @@ logger.addHandler(consoleHandler)
 
 class TrackingComputer():
     def __init__(self):
+        self.stop_event = threading.Event()
         self.config = load_config("config.json")
 
-        self.tracker = Tracker(
+        # self.tracker = Tracker(
+        #     logger=logger,
+        #     video_source=self.config["vision"]["video_source"],
+        #     frame_rate=self.config["vision"]["frame_rate"],
+        #     tracker_config=self.config["tracker_config"])
+
+        self.vision = DroneVision(
             logger=logger,
             video_source=self.config["vision"]["video_source"],
             frame_rate=self.config["vision"]["frame_rate"],
-            tracker_config=self.config["tracker_config"])
+            tracker_config=self.config["tracker_config"],
+            log_video=True)
 
         # ardupilot_interface = ArduPilotInterface(
         #     self.config["ardupilot_interface"]["com_port"],
@@ -53,22 +62,22 @@ class TrackingComputer():
         )
 
 
-        def get_stream_frame():
-            return self.tracker.frame
+        # def get_stream_frame():
+        #     return self.vision.get_fram
 
-        self.user_interface = WebGui(video_stream_cb=get_stream_frame,
-                                     set_tracking_target_cb=self.tracker.set_tracking_target)
+        self.user_interface = WebGui(video_stream_cb=self.vision.get_frame,
+                                     set_tracking_target_cb=self.vision.set_tracking_target)
 
         self.running = 1
 
     def run(self):
-        while self.running:
-            self.tracker._process_frame()
+        while not self.stop_event.is_set():
+            self.vision.run()
             # time.sleep(0.05)
 
     def __del__(self):
-        self.running = False
-        self.tracker.kill()
+        self.stop_event.set()
+        self.vision.kill()
 
     # except Exception as e:
     #     raise(e)
