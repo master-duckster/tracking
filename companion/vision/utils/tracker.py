@@ -75,5 +75,8 @@ class Tracker:
             if ok:
                 return bbox
             else:
+                print('object lost')
+                self.bbox = None
+                self.tracker_initialized = False
                 return None
         return None
